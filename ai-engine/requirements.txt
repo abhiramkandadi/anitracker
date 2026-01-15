@@ -2,4 +2,6 @@ flask
 flask-cors
 pandas
 scikit-learn
-gunicorn
+gunicornz
+thefuzz
+python-Levenshtein

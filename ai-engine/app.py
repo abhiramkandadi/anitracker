@@ -1,71 +1,82 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pandas as pd
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import linear_kernel
+from thefuzz import process
 
 app = Flask(__name__)
-CORS(app)  # Allows your Framer site to talk to this API
+CORS(app)
 
-# --- 1. CREATE DUMMY DATA (Replace this with a real CSV later) ---
-data = {
-    'id': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-    'title': [
-        "Attack on Titan", "Naruto", "Death Note", "One Piece", 
-        "Demon Slayer", "Fullmetal Alchemist: Brotherhood", 
-        "My Hero Academia", "Steins;Gate", "Jujutsu Kaisen", "Cyberpunk: Edgerunners"
-    ],
-    'genres': [
-        "Action Drama Fantasy", "Action Adventure Fantasy", "Mystery Psychological Thriller", 
-        "Action Adventure Fantasy", "Action Fantasy Demons", "Action Adventure Drama", 
-        "Action Comedy SuperPower", "Sci-Fi Thriller", "Action Supernatural School", "Sci-Fi Action"
-    ]
-}
-df = pd.DataFrame(data)
+# Load the dataset
+# Make sure your csv file is named correctly here!
+try:
+    df = pd.read_csv('anime.csv')
+    # Fill missing values to avoid errors
+    df['genre'] = df['genre'].fillna('')
+except:
+    print("Error: anime.csv not found. Make sure it is in the ai-engine folder.")
+    df = pd.DataFrame()
 
-# --- 2. TRAIN THE AI MODEL ---
-# This converts genres into numbers so the AI can understand them
-cv = CountVectorizer(max_features=5000, stop_words='english')
-vectors = cv.fit_transform(df['genres']).toarray()
-similarity = cosine_similarity(vectors)
-
-# --- 3. RECOMMENDATION FUNCTION ---
-def recommend(anime_title):
-    # Find the index of the anime matches the title
-    try:
-        anime_index = df[df['title'] == anime_title].index[0]
-    except IndexError:
-        return ["Anime not found in database"]
+# 1. TRAIN THE AI (TF-IDF)
+# We combine Genres and Type to create a "content profile" for each anime
+if not df.empty:
+    tfidf = TfidfVectorizer(stop_words='english')
+    tfidf_matrix = tfidf.fit_transform(df['genre'])
+    cosine_sim = linear_kernel(tfidf_matrix, tfidf_matrix)
     
-    # Get similarity scores for this anime
-    distances = similarity[anime_index]
-    
-    # Sort the list to find the most similar ones (excluding itself)
-    # This logic creates a list of (index, score)
-    anime_list = sorted(list(enumerate(distances)), reverse=True, key=lambda x: x[1])[1:4]
-    
-    recommendations = []
-    for i in anime_list:
-        recommendations.append(df.iloc[i[0]].title)
-    return recommendations
+    # Create a mapping of Anime Name -> Index
+    indices = pd.Series(df.index, index=df['name']).drop_duplicates()
 
-# --- 4. API ENDPOINT ---
 @app.route('/recommend', methods=['POST'])
-def get_recommendation():
-    user_data = request.json
-    liked_anime = user_data.get('anime')
-    
-    print(f"User likes: {liked_anime}...")
-    results = recommend(liked_anime)
-    
-    return jsonify({
-        "original": liked_anime,
-        "recommendations": results
-    })
+def recommend():
+    data = request.get_json()
+    user_input = data.get('anime', '').strip()
 
-@app.route('/', methods=['GET'])
-def home():
-    return "Anime AI is Running!"
+    if df.empty:
+        return jsonify({"error": "Database not loaded"}), 500
+
+    # --- FUZZY MATCHING (THE FIX) ---
+    # Get a list of all anime names
+    all_names = df['name'].tolist()
+    
+    # Find the single closest match to what the user typed
+    # limit=1 means "give me the best one"
+    best_match = process.extractOne(user_input, all_names)
+    
+    # best_match looks like: ("Naruto", 90) where 90 is the confidence score
+    matched_name = best_match[0]
+    score = best_match[1]
+
+    # If the match is too weak (e.g., user typed "sdlkfjsd"), don't guess
+    if score < 50:
+        return jsonify({"recommendations": [], "status": "Not found"}), 404
+
+    # Now use the CORRECTED name to find recommendations
+    try:
+        idx = indices[matched_name]
+        
+        # Get similarity scores for this anime
+        sim_scores = list(enumerate(cosine_sim[idx]))
+        
+        # Sort them (highest score first)
+        sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
+        
+        # Get the top 5 (skipping the first one because it is the anime itself)
+        sim_scores = sim_scores[1:6]
+        
+        # Get the anime names
+        anime_indices = [i[0] for i in sim_scores]
+        recommendations = df['name'].iloc[anime_indices].tolist()
+
+        return jsonify({
+            "recommendations": recommendations,
+            "original_query": user_input,
+            "matched_name": matched_name # Sending this back so Frontend knows!
+        })
+
+    except KeyError:
+        return jsonify({"recommendations": []}), 404
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True)
