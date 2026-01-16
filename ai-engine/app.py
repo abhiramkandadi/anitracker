@@ -81,10 +81,11 @@ def post_discussion():
 def rate_anime():
     data = request.get_json()
     
-    # Insert into Supabase
+    # Now we save the USER too!
     new_rating = {
         "anime": data['anime'],
-        "score": int(data['score'])
+        "score": int(data['score']),
+        "user": data.get('user', 'Anonymous') # <-- The new field
     }
     supabase.table('ratings').insert(new_rating).execute()
     
