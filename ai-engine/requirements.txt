@@ -5,3 +5,4 @@ scikit-learn
 gunicorn
 thefuzz
 python-Levenshtein
+supabase
