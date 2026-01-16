@@ -11,8 +11,8 @@ app = Flask(__name__)
 CORS(app)
 
 # --- CONFIGURATION (PASTE YOUR KEYS HERE) ---
-SUPABASE_URL = "PASTE_YOUR_PROJECT_URL_HERE"
-SUPABASE_KEY = "PASTE_YOUR_ANON_KEY_HERE"
+SUPABASE_URL = "https://mwbhbavtkbmepzkckytj.supabase.co"
+SUPABASE_KEY = "sb_publishable_DuKx8BT9HaLfsG7vist54w_SWDTYEJl"
 
 # Connect to Supabase
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
